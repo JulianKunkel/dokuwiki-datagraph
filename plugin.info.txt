@@ -1,0 +1,8 @@
+base    datagraph
+author  Julian Kunkel
+email   JulianKunkel@googlemail.com
+date    2016-01-24
+name    Data Graph Plugin
+desc    Create Graphs for the Data Plugin
+url     https://www.dokuwiki.org/plugin:datagraph
+
