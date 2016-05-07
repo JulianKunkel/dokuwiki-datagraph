@@ -41,8 +41,8 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
         $this->Lexer->addSpecialPattern('----+ *datagraph *-+\n.*?\n---+', $mode, 'plugin_datagraph');
     }
 
-    function handle($match, $state, $pos, Doku_Handler $handler) {	
-	$kv = array("group by" => "", "aggregate" => "", "digits" => "1", "choosableGroups" => "", "choosableAggregates" => "", );
+    function handle($match, $state, $pos, Doku_Handler $handler) {
+	$kv = array("group by" => "", "aggregate" => "", "digits" => "1", "choosableGroups" => "", "choosableAggregates" => "", "filterClass" => NULL, "choosableYear" => "");
 
 	$match = explode("\n", $match);
 	foreach($match as $line){
@@ -60,6 +60,20 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
 	$format = intval($kv["digits"]);
 	$groups = explode(",",$kv["choosableGroups"]);
 	$aggregates = explode(",",$kv["choosableAggregates"]);
+  $years = explode(",",$kv["choosableYear"]);
+  $filter = $kv["filterClass"];
+  $filter_short = "";
+  $filter2value = $years[0]; // query only the first year
+  $filter2key = "year";
+
+  if ($_GET["year"] != NULL){
+    $filter2value = $_GET["year"];
+  }
+
+  if($filter != NULL){
+    # TODO prevent SQL injections
+    $filter_short= 'p.class = "' .$filter . '"';
+  }
 
 	// defaults:
 	$groupBy = $kv["group by"] ;
@@ -106,7 +120,7 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
 			}else{
 				$mark = "";
 			}
-			print($mark . "[[?group=". $g . "&aggregate=". $agg ."|". $g . "]]". $mark);			
+			print($mark . "[[?group=". $g . "&aggregate=". $agg ."|". $g . "]]". $mark);
 			$first = False;
 		}
 		print("\n");
@@ -125,21 +139,18 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
 			}else{
 				$mark = "";
 			}
-			print($mark."[[?group=". $groupBy . "&aggregate=". $g ."|". $g . "]]".$mark);			
+			print($mark."[[?group=". $groupBy . "&aggregate=". $g ."|". $g . "]]".$mark);
 			$first = False;
 		}
 		print("\n");
 	}
-
-	$systemCount = $this->db->res2arr($this->db->query('select  count(*) as r from pages as p where p.class = "sites"'));
-	$systemCount = intval($systemCount[0]["r"]);
 
 	$detailedGrouping = $_GET["groupDetails"];
 	if ($detailedGrouping == NULL){
 		$detailedGrouping = FALSE;
 	}
 
-	$arr = $this->db->res2arr($this->db->query('select d2.value as k, sum(d.value) as s, count(d.value) as m, d.value as metrics, group_concat(page) as pages from pages as p join data as d on d.pid = p.pid  join data as d2 on d2.pid = p.pid   where p.class = "sites" and d.key="' . $agg . '" and d2.key="' . $groupBy. '" group by d2.value'));
+	$arr = $this->db->res2arr($this->db->query('select d2.value as k, sum(d.value) as s, count(d.value) as m, d.value as metrics, group_concat(page) as pages from pages as p join data as d on d.pid = p.pid  join data as d2 on d2.pid = p.pid   join data as d3 on d3.pid = p.pid  ' . $filter_joins . ' where ' . $filter_short . ' and d.key="' . $agg . '" and d2.key="' . $groupBy. '" and d3.key = "' . $filter2key . '" and d3.value = "' . $filter2value . '" group by d2.value'));
 
 	$metrics = explode(" ", $arr[0]["metrics"]);
 	if( count($metrics == 2)){
@@ -148,7 +159,7 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
 		$metrics = "";
 	}
 
-	
+
 	$count = count($arr);
 	for( $i=0; $i < $count; $i++){
 		if(strlen($arr[$i]["k"]) < 2){
@@ -159,7 +170,7 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
 			$curname = explode(" ", trim($arr[$i]["k"]));
 			if(count($curname) > 1 || ctype_lower($curname[0][0])){
 				unset($arr[$i]);
-			}			
+			}
 		}
 	}
 
@@ -168,15 +179,17 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
         	print("['" . $line["k"] .  "', ".  $line["s"]  ."], ");
 	}
 	print("],    type : 'pie',  }}</c3>\n");
-	
+
 	// header
 	print("=== " . ucfirst($agg) . " by "  .  $groupBy . "  ====\n");
 
 	print("^ " .  ucfirst($groupBy)  . "^  (SUM)  ^   mean  ^  # systems  ^  System list  ^\n");
 	// body
 	$sum = 0;
+  $systemCount = 0;
 	foreach( $arr as $line ){
 		$sum = $sum + $line["s"];
+    $systemCount = $systemCount + $line["m"];
         	print("|" . $line["k"] .  "|   ".  number_format($line["s"], $format) . $metrics   ."  |  " .  number_format($line["s"]/$line["m"], $format)   . $metrics   . "  |  " .   $line["m"] . "|  ");
 		$systems = "";
 		foreach (explode(",", $line["pages"]) as $page){
@@ -185,7 +198,7 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
 		print( trim($systems, " ,") . "|\n");
 	}
 	print("| (SUM) **all systems** |  " . $sum  . $metrics . " |    " .  number_format(($sum / $systemCount), 1) . $metrics . "|  " . $systemCount .   "| \n");
-	
+
 
 	//print("<c3>{  data: {    columns: [      ['data1', 30],      ['data2', 120],    ],    type : 'pie',  }}</c3>");
 	$R->doc .= p_render( "xhtml", p_get_instructions( ob_get_contents() ), $info);
@@ -194,4 +207,3 @@ class syntax_plugin_datagraph extends DokuWiki_Syntax_Plugin {
         return true;
     }
 }
-
